@@ -38,7 +38,9 @@ class SQLiteCache:
     def _get_connection(self):
         if self._mem_conn:
             return self._mem_conn
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.execute("PRAGMA busy_timeout = 30000;")
+        return conn
 
     def _init_db(self):
         conn = self._get_connection()
@@ -123,7 +125,7 @@ class SQLiteCache:
 
                 for c_key, c_prompt, c_response, c_pt, c_rt, _ in candidates:
                     cand_vec = extract_ngrams(c_prompt)
-                    score = compute_cosine_similarity(target_vec, cand_vec)
+                    score = compute_cosine_similarity(target_vec, cand_vec, text1=target_text, text2=c_prompt)
                     if score > best_score:
                         best_score = score
                         best_match = (c_key, c_response, (c_pt or 0) + (c_rt or 0))
@@ -151,18 +153,25 @@ class SQLiteCache:
 
         raw_prompt = json.dumps(prompt_or_messages, ensure_ascii=False) if isinstance(prompt_or_messages, (list, dict)) else str(prompt_or_messages)
 
-        conn = self._get_connection()
-        try:
-            conn.execute("""
-                INSERT OR REPLACE INTO response_cache
-                (cache_key, model, prompt, response, prompt_tokens, response_tokens, hits, created_at, last_accessed, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-            """, (key, model, raw_prompt, response, prompt_tokens, response_tokens, now, now, expires_at))
-            conn.commit()
-            return key
-        finally:
-            if not self._mem_conn:
-                conn.close()
+        max_retries = 3
+        for attempt in range(max_retries):
+            conn = self._get_connection()
+            try:
+                conn.execute("""
+                    INSERT OR REPLACE INTO response_cache
+                    (cache_key, model, prompt, response, prompt_tokens, response_tokens, hits, created_at, last_accessed, expires_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                """, (key, model, raw_prompt, response, prompt_tokens, response_tokens, now, now, expires_at))
+                conn.commit()
+                return key
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower() and attempt < max_retries - 1:
+                    time.sleep(0.05 * (2 ** attempt))
+                    continue
+                raise
+            finally:
+                if not self._mem_conn:
+                    conn.close()
 
     def get_stats(self) -> Dict[str, Any]:
         conn = self._get_connection()

@@ -1,0 +1,55 @@
+{
+  "adversarial_collision_test": {
+    "total_adversarial_queries": 6,
+    "false_positive_collisions": 0,
+    "collision_rate_percent": 0.0,
+    "legitimate_paraphrase_hits": 1
+  },
+  "concurrency_stress_test": {
+    "total_requests": 1000,
+    "concurrency_level": 40,
+    "total_time_seconds": 65.429,
+    "throughput_req_per_sec": 15.3,
+    "database_lock_errors": 2,
+    "success_rate_percent": 99.8,
+    "p50_latency_ms": 247.2,
+    "p95_latency_ms": 13055.59,
+    "p99_latency_ms": 25059.57
+  },
+  "financial_billing_audit": {
+    "DeepSeek-V3": {
+      "baseline_monthly_bill_usd": 29.62,
+      "quotaguard_monthly_bill_usd": 13.33,
+      "monthly_dollars_saved_usd": 16.29,
+      "real_invoice_savings_percent": 55.0
+    },
+    "Qwen-Max": {
+      "baseline_monthly_bill_usd": 173.76,
+      "quotaguard_monthly_bill_usd": 78.09,
+      "monthly_dollars_saved_usd": 95.67,
+      "real_invoice_savings_percent": 55.1
+    },
+    "GPT-4o": {
+      "baseline_monthly_bill_usd": 271.5,
+      "quotaguard_monthly_bill_usd": 122.02,
+      "monthly_dollars_saved_usd": 149.48,
+      "real_invoice_savings_percent": 55.1
+    },
+    "Claude-3.5-Sonnet": {
+      "baseline_monthly_bill_usd": 370.8,
+      "quotaguard_monthly_bill_usd": 168.92,
+      "monthly_dollars_saved_usd": 201.88,
+      "real_invoice_savings_percent": 54.4
+    }
+  },
+  "instruction_preservation_test": {
+    "missing_critical_keywords": [],
+    "all_constraints_in_prompt": true,
+    "llm_output_received": "{\"status\": false, \"details\": \"The login function does not implement any credential validation; it always returns True regardless of input.; The code lacks token authentication and ",
+    "no_markdown_backticks": true,
+    "valid_json_output": true,
+    "keys_correct": true,
+    "boolean_status": true,
+    "overall_compliance_rate_percent": 100.0
+  }
+}
