@@ -11,7 +11,7 @@ import sqlite3
 import hashlib
 from typing import Optional, Dict, Any, Tuple
 
-DEFAULT_DB_PATH = os.path.expanduser("~/.quotaguard/cache.db")
+DEFAULT_DB_PATH = os.environ.get("QUOTAGUARD_DB_PATH", r"D:\QuotaGuard\data\cache.db")
 
 class SQLiteCache:
     def __init__(self, db_path: Optional[str] = None, default_ttl: int = 86400 * 7):
