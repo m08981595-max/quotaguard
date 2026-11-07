@@ -9,6 +9,7 @@ import sys
 import argparse
 from ..core.cache import SQLiteCache
 from ..core.compressor import PromptCompressor
+from ..core.router import SmartRouter
 from ..server.gateway import start_server
 
 if sys.platform == "win32":
@@ -34,9 +35,13 @@ def main():
     subparsers.add_parser("clear-cache", help="Flush the local SQLite response cache")
 
     # compress command
-    comp_parser = subparsers.add_parser("compress", help="Test compression on a prompt or file")
+    comp_parser = subparsers.add_parser("compress", help="Test compression and deduplication on a prompt or file")
     comp_parser.add_argument("text", nargs="*", help="Text to compress")
     comp_parser.add_argument("--file", "-f", help="File to compress")
+
+    # route command
+    route_parser = subparsers.add_parser("route", help="Analyze query intent and show optimal model routing")
+    route_parser.add_argument("query", nargs="+", help="Query or task description to classify")
 
     args = parser.parse_args()
 
@@ -73,7 +78,7 @@ def main():
         return
 
     if args.command == "compress":
-        compressor = PromptCompressor()
+        compressor = PromptCompressor(enable_dedup=True)
         input_text = " ".join(args.text)
         if args.file and os.path.exists(args.file):
             with open(args.file, "r", encoding="utf-8", errors="ignore") as f:
@@ -84,12 +89,22 @@ def main():
             return
 
         comp_text, s = compressor.compress(input_text)
-        print("\n🗜️ === نتيجة ضغط الـ Prompt ===")
+        print("\n🗜️ === نتيجة ضغط وإزالة تكرار الـ Prompt ===")
         print(f"• الحجم الأصلي: {s.original_chars} حرف (~{s.estimated_tokens_before} توكن)")
-        print(f"• الحجم المضغوط: {s.compressed_chars} حرف (~{s.estimated_tokens_after} توكن)")
-        print(f"• التوفير: {s.saved_tokens} توكن بنسبة ({s.savings_percentage}%)\n")
-        print("--- النص بعد الضغط ---")
-        print(comp_text[:300] + ("..." if len(comp_text) > 300 else ""))
+        print(f"• الحجم بعد المعالجة: {s.compressed_chars} حرف (~{s.estimated_tokens_after} توكن)")
+        print(f"• التوفير التقديري: {s.saved_tokens} توكن بنسبة ({s.savings_percentage}%)\n")
+        print("--- النص الناتج ---")
+        print(comp_text[:400] + ("..." if len(comp_text) > 400 else ""))
+        return
+
+    if args.command == "route":
+        router = SmartRouter()
+        query_text = " ".join(args.query)
+        routed_model, task_type = router.route(query_text)
+        print("\n🧭 === نتيجة التوجيه الذكي (Smart Routing) ===")
+        print(f"• الاستعلام: {query_text[:120]}...")
+        print(f"• تصنيف المهمة (Task Type): {task_type.value}")
+        print(f"• النموذج الأنسب المُوجّه إليه: {routed_model} 🎯\n")
         return
 
     parser.print_help()

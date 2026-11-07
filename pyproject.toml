@@ -4,21 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quotaguard"
-version = "0.1.0"
+version = "0.2.0"
 authors = [
   { name = "QuotaGuard Core Team" },
 ]
-description = "Local AI Gateway & Caching Proxy: Saves 50-80% tokens and eliminates HTTP 429 rate limit errors"
+description = "Local AI Gateway & Caching Proxy: Verified multi-tier semantic caching, deduplication, and intelligent routing"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+license = "MIT"
+dependencies = [
+    "numpy>=1.20.0"
 ]
-dependencies = []
 
 [project.scripts]
 quotaguard = "quotaguard.cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["quotaguard*"]
