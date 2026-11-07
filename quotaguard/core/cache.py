@@ -13,7 +13,15 @@ import hashlib
 from typing import Optional, Dict, Any, Tuple
 from .semantic import extract_ngrams, compute_cosine_similarity
 
-DEFAULT_DB_PATH = os.environ.get("QUOTAGUARD_DB_PATH", r"D:\QuotaGuard\data\cache.db")
+def get_default_db_path() -> str:
+    env_path = os.environ.get("QUOTAGUARD_DB_PATH")
+    if env_path:
+        return env_path
+    if os.path.exists(r"D:\QuotaGuard"):
+        return r"D:\QuotaGuard\data\cache.db"
+    return os.path.join(os.path.expanduser("~"), ".quotaguard", "data", "cache.db")
+
+DEFAULT_DB_PATH = get_default_db_path()
 
 class SQLiteCache:
     def __init__(self, db_path: Optional[str] = None, default_ttl: int = 86400 * 7, semantic_threshold: float = 0.85):
