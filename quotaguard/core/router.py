@@ -1,9 +1,12 @@
 """
 QuotaGuard Smart Task Classifier, Model Router & Selective Context Engine
 ========================================================================
-Analyzes query intent and complexity, selectively trims non-essential context,
-and routes to the optimal model (Flash for fast QA, Pro for deep reasoning,
-Qwen Max for code and logic auditing).
+Analyzes query intent, size, and complexity, selectively trims non-essential context,
+and routes to the optimal model:
+  - Flash for fast QA
+  - Pro for deep reasoning
+  - Qwen Max for code and logic auditing
+  - Kimi K3 for long-context whole-repository and heavy document analysis
 """
 
 import re
@@ -14,16 +17,24 @@ class TaskType(str, Enum):
     FAST_QA = "fast_qa"
     REASONING_HEAVY = "reasoning_heavy"
     CODE_AUDIT = "code_audit"
+    LONG_CONTEXT = "long_context"
 
 # Default Model Routing Map
 MODEL_ROUTING_MAP = {
     TaskType.FAST_QA: "free/deepseek-v4.1-flash",
     TaskType.REASONING_HEAVY: "free/deepseek-v4-pro-0813",
-    TaskType.CODE_AUDIT: "free/qwen-3.8-max"
+    TaskType.CODE_AUDIT: "free/qwen-3.8-max",
+    TaskType.LONG_CONTEXT: "free/kimi-k3"
 }
 
 class TaskClassifier:
-    """Classifies task intent using fast lexical heuristic patterns."""
+    """Classifies task intent using fast lexical heuristic patterns and payload size."""
+
+    LONG_CONTEXT_PATTERNS = [
+        r"\b(repository|full codebase|entire project|multi[- ]file|all files|workspace scan)\b",
+        r"\b(large document|100k|200k|long[- ]context|huge log|crash dump)\b",
+        r"مستودع كامل|مشروع ضخم|كل الملفات|فحص المجلد بالكامل|سياق طويل"
+    ]
 
     CODE_PATTERNS = [
         r"```",
@@ -56,17 +67,24 @@ class TaskClassifier:
 
         text_lower = text.lower()
 
-        # Check for Code / Audit intent
+        # 1. Check for Heavy Payload / Whole-Repository Intent -> Kimi K3
+        if len(text) > 4000:
+            return TaskType.LONG_CONTEXT
+        for pat in cls.LONG_CONTEXT_PATTERNS:
+            if re.search(pat, text_lower, re.IGNORECASE):
+                return TaskType.LONG_CONTEXT
+
+        # 2. Check for Code / Audit intent -> Qwen Max
         for pat in cls.CODE_PATTERNS:
             if re.search(pat, text_lower, re.IGNORECASE):
                 return TaskType.CODE_AUDIT
 
-        # Check for Deep Reasoning intent
+        # 3. Check for Deep Reasoning intent -> DeepSeek Pro
         for pat in cls.REASONING_PATTERNS:
             if re.search(pat, text_lower, re.IGNORECASE):
                 return TaskType.REASONING_HEAVY
 
-        # Simple factual / Q&A / translation
+        # 4. Simple factual / Q&A / translation -> Flash
         return TaskType.FAST_QA
 
 class SelectiveContext:
@@ -80,7 +98,11 @@ class SelectiveContext:
         system_msgs = [m for m in messages if m.get("role") == "system"]
         conversation_msgs = [m for m in messages if m.get("role") != "system"]
 
-        if task_type == TaskType.FAST_QA:
+        if task_type == TaskType.LONG_CONTEXT:
+            # Long context preserves full messages for repository analysis
+            return messages
+
+        elif task_type == TaskType.FAST_QA:
             # Fast QA only needs system prompt and last 2 messages
             trimmed = conversation_msgs[-2:] if len(conversation_msgs) >= 2 else conversation_msgs
             return system_msgs + trimmed
