@@ -1,0 +1,57 @@
+{
+  "Test_A": {
+    "baseline_input_tokens": 486,
+    "optimized_input_tokens": 458,
+    "tokens_saved": 28,
+    "saving_percentage": 5.76,
+    "heuristic_estimated_saved": 142,
+    "quality_check": true,
+    "functional_comments_preserved": true,
+    "decorative_dividers_stripped": true
+  },
+  "Test_B": {
+    "run_1_api_tokens": 380,
+    "run_1_latency_sec": 2.096,
+    "run_2_api_tokens": 0,
+    "run_2_latency_sec": 0.11414,
+    "exact_cache_hit": true,
+    "exact_match_type": "exact",
+    "run_3_api_tokens": 0,
+    "run_3_latency_sec": 0.10665,
+    "semantic_cache_hit": true,
+    "semantic_match_type": "semantic_0.94",
+    "total_cached_saved_tokens": 760
+  },
+  "Test_C": {
+    "raw_tokens": 553,
+    "comp_tokens": 428,
+    "tokens_saved": 125,
+    "saving_percentage": 22.6,
+    "lines_deduplicated": true
+  },
+  "Test_D_E": {
+    "qa_routed_model": "free/deepseek-v4.1-flash",
+    "qa_task_type": "fast_qa",
+    "code_routed_model": "free/qwen-3.8-max",
+    "code_task_type": "code_audit",
+    "reasoning_routed_model": "free/deepseek-v4-pro-0813",
+    "reasoning_task_type": "reasoning_heavy",
+    "smart_routing_verified": true,
+    "selective_context_trimmed_unrelated": true,
+    "original_msg_count": 6,
+    "filtered_msg_count": 4
+  },
+  "Test_F": {
+    "baseline_input_tokens": 493,
+    "optimized_input_tokens": 474,
+    "tokens_saved": 19,
+    "saving_percentage": 3.85
+  },
+  "Test_G": {
+    "shared_context_cached": true,
+    "deepseek_tokens": 1792,
+    "gemini_tokens": 0,
+    "qwen_audit_prompt_tokens": 428,
+    "total_team_savings_tokens": 1792
+  }
+}

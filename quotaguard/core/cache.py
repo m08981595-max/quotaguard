@@ -1,7 +1,8 @@
 """
-QuotaGuard SQLite Caching Engine
-================================
-Zero-dependency persistent local cache delivering sub-millisecond 0-token responses.
+QuotaGuard SQLite Caching Engine with Semantic Matching
+======================================================
+Combines exact SHA-256 instant hashing with vectorized Cosine Similarity
+semantic caching for rephrased queries.
 """
 
 import os
@@ -10,13 +11,15 @@ import json
 import sqlite3
 import hashlib
 from typing import Optional, Dict, Any, Tuple
+from .semantic import extract_ngrams, compute_cosine_similarity
 
 DEFAULT_DB_PATH = os.environ.get("QUOTAGUARD_DB_PATH", r"D:\QuotaGuard\data\cache.db")
 
 class SQLiteCache:
-    def __init__(self, db_path: Optional[str] = None, default_ttl: int = 86400 * 7):
+    def __init__(self, db_path: Optional[str] = None, default_ttl: int = 86400 * 7, semantic_threshold: float = 0.85):
         self.db_path = db_path or DEFAULT_DB_PATH
         self.default_ttl = default_ttl
+        self.semantic_threshold = semantic_threshold
         self._mem_conn = None
         if self.db_path == ":memory:":
             self._mem_conn = sqlite3.connect(":memory:")
@@ -48,6 +51,7 @@ class SQLiteCache:
             );
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_expires ON response_cache (expires_at);")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_model ON response_cache (model);")
         conn.commit()
         if not self._mem_conn:
             conn.close()
@@ -62,44 +66,76 @@ class SQLiteCache:
         combined = f"{model}:{raw}"
         return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
-    def get(self, prompt_or_messages: Any, model: str = "") -> Optional[Tuple[str, int]]:
-        """Retrieve cached response and saved tokens if found and not expired."""
+    def get(self, prompt_or_messages: Any, model: str = "", enable_semantic: bool = True) -> Optional[Tuple[str, int, str]]:
+        """
+        Retrieve cached response.
+        Returns: Tuple of (response_text, saved_tokens, match_type: 'exact'|'semantic') or None.
+        """
         key = self.generate_key(prompt_or_messages, model)
         now = time.time()
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
+
+            # Step 1: Exact Match Lookup (O(1))
             cursor.execute("""
                 SELECT response, prompt_tokens, response_tokens, expires_at
                 FROM response_cache
                 WHERE cache_key = ?
             """, (key,))
             row = cursor.fetchone()
-            if not row:
-                return None
+            if row:
+                response, p_tokens, r_tokens, expires_at = row
+                if not (expires_at and now > expires_at):
+                    cursor.execute("""
+                        UPDATE response_cache
+                        SET hits = hits + 1, last_accessed = ?
+                        WHERE cache_key = ?
+                    """, (now, key))
+                    conn.commit()
+                    saved = (p_tokens or 0) + (r_tokens or 0)
+                    return response, saved, "exact"
 
-            response, p_tokens, r_tokens, expires_at = row
-            if expires_at and now > expires_at:
-                cursor.execute("DELETE FROM response_cache WHERE cache_key = ?", (key,))
-                conn.commit()
-                return None
+            # Step 2: Semantic Matching Lookup (Cosine Similarity)
+            if enable_semantic:
+                target_text = json.dumps(prompt_or_messages, ensure_ascii=False) if isinstance(prompt_or_messages, (list, dict)) else str(prompt_or_messages)
+                target_vec = extract_ngrams(target_text)
 
-            # Increment hits & update last accessed
-            cursor.execute("""
-                UPDATE response_cache
-                SET hits = hits + 1, last_accessed = ?
-                WHERE cache_key = ?
-            """, (now, key))
-            conn.commit()
+                # Fetch candidate prompts for this model
+                cursor.execute("""
+                    SELECT cache_key, prompt, response, prompt_tokens, response_tokens, expires_at
+                    FROM response_cache
+                    WHERE model = ? AND (expires_at = 0 OR expires_at > ?)
+                    ORDER BY hits DESC, last_accessed DESC LIMIT 150
+                """, (model, now))
+                candidates = cursor.fetchall()
 
-            saved_tokens = (p_tokens or 0) + (r_tokens or 0)
-            return response, saved_tokens
+                best_match = None
+                best_score = 0.0
+
+                for c_key, c_prompt, c_response, c_pt, c_rt, _ in candidates:
+                    cand_vec = extract_ngrams(c_prompt)
+                    score = compute_cosine_similarity(target_vec, cand_vec)
+                    if score > best_score:
+                        best_score = score
+                        best_match = (c_key, c_response, (c_pt or 0) + (c_rt or 0))
+
+                if best_match and best_score >= self.semantic_threshold:
+                    matched_key, matched_resp, saved_tok = best_match
+                    cursor.execute("""
+                        UPDATE response_cache
+                        SET hits = hits + 1, last_accessed = ?
+                        WHERE cache_key = ?
+                    """, (now, matched_key))
+                    conn.commit()
+                    return matched_resp, saved_tok, f"semantic_{best_score:.2f}"
+
+            return None
         finally:
             if not self._mem_conn:
                 conn.close()
 
     def set(self, prompt_or_messages: Any, response: str, model: str = "", prompt_tokens: int = 0, response_tokens: int = 0, ttl: Optional[int] = None) -> str:
-        """Store a new model completion in cache."""
         key = self.generate_key(prompt_or_messages, model)
         now = time.time()
         ttl_seconds = ttl if ttl is not None else self.default_ttl
@@ -121,7 +157,6 @@ class SQLiteCache:
                 conn.close()
 
     def get_stats(self) -> Dict[str, Any]:
-        """Aggregate total cache hits and saved token metrics."""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
@@ -145,7 +180,6 @@ class SQLiteCache:
                 conn.close()
 
     def clear(self) -> None:
-        """Clear all cached entries."""
         conn = self._get_connection()
         try:
             conn.execute("DELETE FROM response_cache;")

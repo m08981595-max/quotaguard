@@ -2,7 +2,8 @@
 QuotaGuard Local AI Gateway / Proxy Server
 ===========================================
 Drop-in OpenAI-compatible proxy running on standard library http.server.
-Intercepts completions, compresses context, consults SQLite cache, and forwards requests.
+Intercepts completions, compresses context, consults SQLite cache (exact + semantic),
+dynamically routes tasks, and forwards requests.
 """
 
 import sys
@@ -16,11 +17,13 @@ from typing import Dict, Any, Optional
 from ..core.compressor import PromptCompressor
 from ..core.cache import SQLiteCache
 from ..core.rate_limiter import RateLimiter
+from ..core.router import SmartRouter, TaskClassifier, SelectiveContext
 
 class QuotaGuardHandler(BaseHTTPRequestHandler):
-    compressor = PromptCompressor()
+    compressor = PromptCompressor(aggressive=False, enable_dedup=True)
     cache = SQLiteCache()
     limiter = RateLimiter(max_requests_per_minute=120)
+    router = SmartRouter()
     upstream_url = "https://api.apinex.bond/v1"
     upstream_api_key = ""
 
@@ -51,8 +54,10 @@ class QuotaGuardHandler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 "object": "list",
                 "data": [
+                    {"id": "auto", "object": "model", "owned_by": "quotaguard"},
                     {"id": "free/deepseek-v4-pro-0813", "object": "model", "owned_by": "quotaguard"},
-                    {"id": "free/deepseek-v4.1-flash", "object": "model", "owned_by": "quotaguard"}
+                    {"id": "free/deepseek-v4.1-flash", "object": "model", "owned_by": "quotaguard"},
+                    {"id": "free/qwen-3.8-max", "object": "model", "owned_by": "quotaguard"}
                 ]
             })
             return
@@ -82,18 +87,27 @@ class QuotaGuardHandler(BaseHTTPRequestHandler):
             return
 
         messages = body.get("messages", [])
-        model = body.get("model", "free/deepseek-v4-pro-0813")
+        requested_model = body.get("model", "auto")
 
-        # Step 1: Check Cache (0 Tokens)
-        cached_result = self.cache.get(messages, model=model)
+        # Step 1: Smart Task Classification & Routing
+        routed_model, task_type = self.router.route(messages, requested_model)
+        enable_selective = self.headers.get("X-Selective-Context", "false").lower() == "true" or requested_model == "auto"
+        if enable_selective:
+            messages = self.router.context_filter.filter_context(messages, task_type)
+            body["messages"] = messages
+
+        # Step 2: Check SQLite Cache (Exact SHA-256 + Semantic Similarity)
+        cached_result = self.cache.get(messages, model=routed_model, enable_semantic=True)
         if cached_result:
-            reply_text, tokens_saved = cached_result
-            sys.stdout.write(f"[QuotaGuard] ⚡ CACHE HIT! Saved {tokens_saved} tokens (0ms)\n")
+            reply_text, tokens_saved, match_type = cached_result
+            sys.stdout.write(f"[QuotaGuard] ⚡ CACHE HIT ({match_type})! Saved {tokens_saved} tokens (0ms)\n")
             self._send_json(200, {
                 "id": "chatcmpl-cached",
                 "object": "chat.completion",
                 "created": int(time.time()),
-                "model": model,
+                "model": routed_model,
+                "task_type": task_type,
+                "match_type": match_type,
                 "choices": [{
                     "index": 0,
                     "message": {"role": "assistant", "content": reply_text},
@@ -108,16 +122,17 @@ class QuotaGuardHandler(BaseHTTPRequestHandler):
             })
             return
 
-        # Step 2: Prompt Compression
+        # Step 3: Prompt Compression & Deduplication
         compressed_msgs, stats = self.compressor.compress_messages(messages)
         body["messages"] = compressed_msgs
+        body["model"] = routed_model
         if stats.saved_tokens > 0:
             sys.stdout.write(f"[QuotaGuard] 🗜️ Compressed Prompt: saved ~{stats.saved_tokens} tokens ({stats.savings_percentage}% reduction)\n")
 
-        # Step 3: Rate Limiter Smooth
+        # Step 4: Rate Limiter Smooth
         self.limiter.acquire(wait=True)
 
-        # Step 4: Upstream Dispatch
+        # Step 5: Upstream Dispatch
         auth_header = self.headers.get("Authorization", "")
         if not auth_header and self.upstream_api_key:
             auth_header = f"Bearer {self.upstream_api_key}"
@@ -141,7 +156,7 @@ class QuotaGuardHandler(BaseHTTPRequestHandler):
                 # Cache completion for future queries
                 p_tokens = res_json.get("usage", {}).get("prompt_tokens", stats.estimated_tokens_after)
                 r_tokens = res_json.get("usage", {}).get("completion_tokens", self.compressor.estimate_tokens(reply_content))
-                self.cache.set(messages, reply_content, model=model, prompt_tokens=p_tokens, response_tokens=r_tokens)
+                self.cache.set(messages, reply_content, model=routed_model, prompt_tokens=p_tokens, response_tokens=r_tokens)
 
                 self._send_json(upstream_res.status, res_json)
         except urllib.error.HTTPError as e:
