@@ -122,7 +122,7 @@ def main():
                 pass
 
         print("\n" + "=" * 65)
-        print("🎯 === لوحة متابعة حدود واستخدام النماذج الثلاثة (AI Limit Tracker) ===")
+        print("🎯 === لوحة متابعة حدود واستخدام النماذج الأربعة (AI Limit Tracker) ===")
         print("=" * 65)
 
         # Gemini
@@ -149,6 +149,14 @@ def main():
         print(f"   • معدل الطلبات المسموح: {rate_limit} (تتجدد النافذة كل دقيقة)")
         print(f"   • الطلبات المتبقية في النافذة اللحظية: {rate_remaining}")
         print(f"   • التوكنز المعالجة محلياً: {qw_stat['tokens']:,} Token (تم توفير {qw_stat['hits']} طلب كاش مجاناً)")
+
+        # Kimi
+        km_stat = model_stats.get("free/kimi-k3", {"tokens": 0, "hits": 0})
+        print("\n4. 🌙 Kimi K3 (free/kimi-k3) — Moonshot AI:")
+        print("   • التخصص المعماري: 📚 السياق الطويل والمستودعات الضخمة (Long-Context & Big Repos)")
+        print("   • استراتيجية الحماية: يُستدعى للملفات والمشاريع الكبيرة فقط لمنع استنزاف باقته الشهرية")
+        print(f"   • معدل التدفق اللحظي: {rate_limit} (متزامن مع نفس البوابة)")
+        print(f"   • التوكنز المعالجة محلياً: {km_stat['tokens']:,} Token (تم توفير {km_stat['hits']} طلب كاش مجاناً)")
 
         print("\n" + "-" * 65)
         print("🛡️ حماية QuotaGuard النشطة:")
